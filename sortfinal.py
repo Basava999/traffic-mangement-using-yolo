@@ -14,9 +14,10 @@ class KalmanFilter:
         pass
 
 class Tracker:
-    def __init__(self, id, detection, class_id):
+    def __init__(self, id, detection, class_id, confidence):
         self.id = id
         self.class_id = class_id
+        self.confidence = confidence
         self.kf = KalmanFilter()
         self.kf.update(detection)
         self.detection = detection
@@ -38,7 +39,7 @@ class DeepSort:
         self.vehicle_classes_count = [0] * 7  # Initialize counts for 7 classes
         self.red_line = None
 
-    def update(self, detections, frame_count, classes):
+    def update(self, detections, frame_count, classes, confidences):
         for tracker in self.trackers:
             tracker.kf.predict()
 
@@ -55,6 +56,7 @@ class DeepSort:
                 tracker = self.trackers[i]
                 tracker.kf.update(detections[j])
                 tracker.detection = detections[j]
+                tracker.confidence = confidences[j]
                 tracker.lost_count = 0
                 tracker.static_count = 0
                 assigned_detections[j] = True
@@ -77,7 +79,7 @@ class DeepSort:
         new_trackers = []
         for i, assigned in enumerate(assigned_detections):
             if not assigned:
-                new_trackers.append(Tracker(self.next_id, detections[i], classes[i]))
+                new_trackers.append(Tracker(self.next_id, detections[i], classes[i], confidences[i]))
                 self.next_id += 1
                 self.vehicle_count += 1
         self.trackers = [tracker for tracker in self.trackers if tracker.lost_count < 5 and tracker.static_count < 10]
@@ -186,7 +188,7 @@ def run_deepsort_on_video(video_path):
         
         frame_count += 1
         detections, classes, confidences = process_frame(model, frame, deepsort, frame_count)
-        deepsort.update(detections, frame_count, classes)
+        deepsort.update(detections, frame_count, classes, confidences)
 
         deepsort.draw_paths(frame)
         deepsort.count_vehicles_passing_red_line()
@@ -195,9 +197,13 @@ def run_deepsort_on_video(video_path):
         for i, tracker in enumerate(deepsort.trackers):
             x, y, w, h = tracker.detection
             class_id = tracker.class_id
-            confidence = confidences[i] if i < len(confidences) else 0  # Get confidence level for the class
+            confidence = tracker.confidence
             class_names = ["Bicycle", "Bus", "Cars", "LCV", "Three-Wheeler", "Truck", "Two-Wheeler"]
-            label = f'{class_names[class_id]}: {confidence:.2f}'
+            if 0 <= class_id < len(class_names):
+                class_name = class_names[class_id]
+            else:
+                class_name = "Unknown"
+            label = f'{class_name}: {confidence:.2f}'
             cv2.rectangle(frame, (int(x), int(y)), (int(x + w), int(y + h)), (0, 255, 0), 2)
             cv2.putText(frame, label, (int(x), int(y) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
